@@ -7,7 +7,7 @@ import sys
 from train_hope import HOPE, CONFIG, DEVICE
 
 # --- CONFIGURATION ---
-MODEL_FILENAME = "hope_en_deep.pth"  # Updated for English model
+MODEL_FILENAME = CONFIG['save_path']  # Synchronized with training config
 
 print(f"Loading HOPE Model from {MODEL_FILENAME}...")
 
@@ -48,9 +48,12 @@ def decode_tokens(tokens):
 def predict(message, history, temperature, max_tokens):
     if not message.strip():
         return
-        
+
+    # --- TEMPLATE FIX: Match the fine-tuning format ---
+    full_prompt = f"Question: {message.strip()}\nAnswer: "
+    
     # 1. Encode Input
-    input_ids = list(message.encode('utf-8'))
+    input_ids = list(full_prompt.encode('utf-8'))
     x = torch.tensor([input_ids], dtype=torch.long).to(DEVICE)
     
     generated_ids = []
@@ -62,18 +65,20 @@ def predict(message, history, temperature, max_tokens):
     last_token_logits = logits[:, -1, :] / max(0.01, temperature)
     probs = torch.softmax(last_token_logits, dim=-1)
     next_token = torch.multinomial(probs, num_samples=1)
-        
+    
     # 2. Optimized Generation Loop
     for _ in range(max_tokens):
         token_int = next_token.item()
-        if token_int == 0: break # Stop token
+        
+        # Stop on 0 (Padding/Stop token)
+        if token_int == 0: 
+            break 
         
         generated_ids.append(token_int)
         
         # Stream output to UI
         yield decode_tokens(generated_ids)
         
-        # Fast update with state!
         with torch.no_grad():
             x = next_token 
             logits, state = model(x, state=state)

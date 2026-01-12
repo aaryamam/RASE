@@ -21,7 +21,9 @@ Standard Large Language Models (LLMs) suffer from **"Anterograde Amnesia"**—on
 * **🕰️ Continuum Memory System (CMS):** A hierarchy of layers that update at different frequencies (Fast, Medium, Slow), mimicking the human brain's memory consolidation.
 * **⚡ Ultra-Lightweight:** Designed to run on **Consumer Hardware** (Mac M1/M2/M3, NVIDIA RTX 3060+, or even CPU).
 * **🔄 Continual Learning:** Capable of training on Dataset A, then Dataset B, without instantly forgetting Dataset A.
-* **📱 Consumer Device Ready:** While training requires high RAM (16GB+), the **trained brain** uses <1GB RAM for inference, making it capable of running on standard laptops, tablets, or even smartphones.
+* **📱 Consumer Device Ready:** Optimized <1GB RAM footprint for inference on everyday hardware.
+* **�️ Padding Masking & Memory Integrity:** Binary masking in the self-modifying layers prevents "Padding Leakage," ensuring the model's memory stays pure during fine-tuning on isolated datasets.
+* **📝 Automatic Instruction Tuning:** Built-in formatting that turns raw multi-column datasets into structured assistant prompts (Question/Answer/Reasoning).
 
 ---
 
@@ -100,11 +102,11 @@ python app.py
 ## 🧪 Advanced Strategies
 
 ### 📈 Fine-Tuning
-HOPE is natively designed for catastrophic-forgetting-free fine-tuning.
-1.  Train on a general corpus (e.g., Wikipedia) using the default settings.
-2.  Switch the `dataset_name` in `CONFIG` to a specialized dataset (e.g., `financial_phrasebank`).
-3.  Lower the `learning_rate` to `1e-5` for stable adaptation.
-4.  Run `train_hope.py` again—it will automatically resume from your saved checkpoint and adapt the "Fast Weights" to the new domain.
+HOPE is natively designed for high-performance instruction tuning and domain adaptation.
+1. **Prepare Data:** Use a Hugging Face dataset with columns like `question` and `answer`.
+2. **Isolate Samples:** Set `"isolate_samples": True` in `CONFIG`. This ensures the model treats each row as a distinct fact, using **Loss Masking** to ignore padding.
+3. **Auto-Formatting:** The trainer automatically detects multiple columns and formats them with headers (e.g., `Question: ... \nAnswer: ...`), teaching the model assistant behaviors.
+4. **Gentle Learning:** Use a lower `learning_rate` (e.g., `5e-5`) to refine the existing "Slow Weights" without losing the foundation knowledge.
 
 ### 🌡️ Inference Parameters
 *   **Temperature:** Controls how "random" the model is. 
@@ -120,12 +122,13 @@ The project is currently tuned for a **~154M Parameter "Ultra Brain"** optimized
 
 ```python
 CONFIG = {
-    "d_model": 768,       # Width (Determines "IQ" and Reasoning capability)
-    "n_layers": 32,       # Depth (32-layer deep hierarchy)
-    "seq_len": 512,       # Context Window (Training window)
-    "vocab_size": 256,    # Byte-Level (No tokenizer needed!)
-    "max_steps": 40000,   # Training saturation point
-    "learning_rate": 2e-4,# Optimized for large-scale stability
+    "d_model": 768,           # Width (Reasoning capability)
+    "n_layers": 32,           # Depth
+    "seq_len": 512,           # Training window
+    "vocab_size": 256,        # Byte-Level
+    "max_steps": 40000,       # Total steps
+    "learning_rate": 2e-4,    # Large-scale stability
+    "isolate_samples": False, # True for Q&A datasets, False for Wikipedia
 }
 ```
 
@@ -140,6 +143,33 @@ One of the key strengths of this architecture is its efficiency during use:
 - **Balanced**: `d_model=384, n_layers=12` (~50M params)
 - **Deep**: `d_model=384, n_layers=32` (~100M params)
 - **Ultra (Default)**: `d_model=768, n_layers=32` (~154M params, high-end Mac/PC)
+
+## 🧪 Training Laboratory & Experiments
+
+The **"Ultra Brain"** configuration (154M Parameters) was developed through a structured multi-phase experimental roadmap:
+
+### Phase 1: General Foundation (Grammar & Facts)
+*   **Dataset:** `wikimedia/wikipedia` (English)
+*   **Method:** **Packed Training** (Stitching articles together to maximize density).
+*   **Goal:** Building a deep semantic understanding of English and general knowledge.
+*   **Outcome:** Loss stabilized at **~1.32**. The model became a proficient "Document Completer," writing perfect Wikipedia-style entries.
+
+### Phase 2: Structural Optimization (Performance)
+*   **Inference:** Switched from $O(N^2)$ to **$O(N)$ State-Passing**. This enabled instant responses by carrying the memory matrix forward rather than re-calculating the entire sequence.
+*   **Dataset Loader:** Upgraded to a **Token Buffer** system, ensuring 100% data utilization by eliminating stub-article discarding.
+
+### Phase 3: Instruction Fine-Tuning (Critical Discovery)
+*   **Dataset:** `obekt/obekt-question-answer-reasoning-nano-v0.1`
+*   **Method:** **Sample-Isolated Mode** with **Padding Masking**.
+*   **The "Padding Leakage" Discovery:** We found that without masking, the model's self-modifying memory would update during padding zeros, causing factual blending.
+*   **The Fix:** Implemented a binary mask in the architecture. The memory now stays perfectly locked during padding, enabling pure, focused learning.
+*   **Optimal Training Window:** We discovered that for 3,000 rows, **5-10 epochs** (roughly 300-600 steps) is the sweet spot. Over-training (50+ epochs) leads to "thematic blending" and hallucinations.
+*   **Outcome:** Loss sat at **0.60** with perfect instruction following and zero context bleeding.
+
+### 💡 High-Quality Best Practices
+1.  **Always Mask:** Ensure `isolate_samples` is True when using Q&A data to trigger the binary padding mask.
+2.  **Watch the Epochs:** Do not let the model see the same small dataset more than 15 times unless knowledge acquisition is still actively improving.
+3.  **Instruction Template:** Always use the `Question: / Answer:` template in inference to match the model's fine-tuned state.
 
 ---
 

@@ -21,23 +21,22 @@ CONFIG = {
     "vocab_size": 256,        
     "seq_len": 512,           # Lowered to 512 to fit state-history in 32GB RAM
     
-    # Precision Scaling for 32GB
+    # Fine-Tuning Scale
     "batch_size": 4,          # Lowered to prevent OOM
     "accumulate_grad": 12,    # Effective batch of 48 (4 * 12)
     
-    # Training Parameters
-    "learning_rate": 2e-4,    
-    "max_steps": 40000,       # More steps because chunks are smaller
-    
-    # Robust Regularization
-    "warmup_steps": 1500,     
+    # Phase 1: Foundation Training (Wikipedia)
+    "learning_rate": 2e-4,    # Standard foundation rate
+    "max_steps": 25000,       # Initial saturation point
+    "warmup_steps": 1500,     # Gradual warmup for stability
     "weight_decay": 0.05,     
 
     # --- DATASET SETTINGS ---
     "dataset_name": "wikimedia/wikipedia",
     "dataset_config": "20231101.en", 
     "dataset_columns": "title, text",
-    "max_samples": 400000,    
+    "max_samples": 500000,    
+    "isolate_samples": False, # PACKED mode for high-density knowledge
 
     "save_path": "hope_x_pro.pth" 
 }
@@ -58,11 +57,10 @@ class SelfModifyingLayer(nn.Module):
         self.proj_out = nn.Linear(dim, dim)
         self.decay_param = nn.Parameter(torch.tensor(0.0)) # Logits for sigmoid
 
-    def forward(self, x, state=None):
+    def forward(self, x, state=None, mask=None):
         q, k, v = self.proj_q(x), self.proj_k(x), self.proj_v(x)
         k = F.elu(k) + 1.0 
         batch_size, seq_len, _ = x.shape
-        outputs = []
         
         # Use provided state or initialize new memory
         memory = state if state is not None else torch.zeros(batch_size, self.dim, self.dim).to(x.device)
@@ -78,7 +76,14 @@ class SelfModifyingLayer(nn.Module):
             read_out = torch.bmm(q_t, memory) 
             update = torch.bmm(k_t.transpose(1, 2), v_t)
             decay_value = torch.sigmoid(self.decay_param) 
-            memory = decay_value * memory + update
+            
+            # --- MASKED UPDATE FIX ---
+            if mask is not None:
+                m_t = mask[:, t].view(batch_size, 1, 1)
+                memory = (1 - m_t) * memory + m_t * (decay_value * memory + update)
+            else:
+                memory = decay_value * memory + update
+                
             outputs.append(read_out)
             
         out = torch.cat(outputs, dim=1)
@@ -110,8 +115,12 @@ class HOPE(nn.Module):
         self.head = nn.Linear(d_model, vocab_size)
 
     def forward(self, x, state=None):
+        # Create Padding Mask (1 for real tokens, 0 for padding 0)
+        mask = (x != 0).float()
+        
         h = self.embedding(x)
-        fast_out, new_state = self.fast_memory(h, state=state)
+        # Pass mask to ensure memory doesn't leak during padding
+        fast_out, new_state = self.fast_memory(h, state=state, mask=mask)
         h = self.norm_fast(h + fast_out)
         for layer in self.cms_layers:
             h = layer(h)
@@ -145,31 +154,28 @@ class SmartTextDataset(IterableDataset):
         if not self.detected_columns:
             self.detected_columns = list(item.keys())
 
-        # --- MODE 1: USER SPECIFIED COLUMNS ---
-        if self.target_columns:
+        # --- MODE 1: USER SPECIFIED COLUMNS ---\n        if self.target_columns:
             text_parts = []
             for col in self.target_columns:
-                # Get the value if the column exists
                 val = item.get(col)
                 if val and isinstance(val, str) and len(val.strip()) > 0:
-                    text_parts.append(val.strip())
+                    # IMPROVEMENT: Add labels if there are multiple columns
+                    if len(self.target_columns) > 1:
+                        text_parts.append(f"{col.capitalize()}: {val.strip()}")
+                    else:
+                        text_parts.append(val.strip())
             
-            # If we found data in the requested columns, return it
             if text_parts:
                 return "\n".join(text_parts)
-            return "" # Skip row if requested columns are empty
+            return ""
 
         # --- MODE 2: AUTO-DETECT (Universal) ---
-        # If config is None, we grab everything that looks like text
-        
-        # Special Case: Wikipedia (Auto-detect Title/Text if not specified)
         if 'text' in item and 'title' in item:
             return f"{item['title']}\n{item['text']}"
             
-        # Fallback: Grab all string columns
         text_parts = []
         for key, value in item.items():
-            if isinstance(value, str) and len(value) > 20: # Filter short IDs
+            if isinstance(value, str) and len(value) > 20: 
                 text_parts.append(value)
         
         return "\n".join(text_parts)
@@ -177,25 +183,45 @@ class SmartTextDataset(IterableDataset):
     def __iter__(self):
         iterator = iter(self.hf_dataset)
         count = 0
+        buffer = [] 
+        
+        # Check if we should isolate rows (Good for Q&A) or pack them (Good for Wikipedia)
+        isolate = CONFIG.get('isolate_samples', False)
+
         while count < self.max_samples:
             try:
                 item = next(iterator)
                 text = self._process_item(item)
-                
-                if not text or len(text) < 50: 
-                    continue 
+                if not text: continue
                 
                 tokens = list(text.encode('utf-8'))
-                for i in range(0, len(tokens) - self.seq_len, self.seq_len):
-                    chunk = tokens[i : i + self.seq_len + 1]
-                    if len(chunk) == self.seq_len + 1:
-                        yield torch.tensor(chunk, dtype=torch.long)
+                
+                if isolate:
+                    # --- ISOLATED MODE: Each row is its own training example ---
+                    # 1. Truncate if too long, or just take the first seq_len
+                    # 2. Add Stop Token (0) at the end
+                    tokens = (tokens[:self.seq_len]) + [0] 
+                    # 3. Pad with 0s until we reach seq_len + 1
+                    padding_needed = (self.seq_len + 1) - len(tokens)
+                    if padding_needed > 0:
+                        tokens.extend([0] * padding_needed)
+                    
+                    yield torch.tensor(tokens, dtype=torch.long)
+                    count += 1
+                else:
+                    # --- PACKED MODE: Stitch multiple rows together ---
+                    if buffer and buffer[-1] != 10:
+                        buffer.append(10)
+                    buffer.extend(tokens)
+                    
+                    while len(buffer) >= self.seq_len + 1:
+                        yield torch.tensor(buffer[:self.seq_len + 1], dtype=torch.long)
+                        buffer = buffer[self.seq_len:]
                         count += 1
                         if count >= self.max_samples: break
-            except StopIteration:
-                break
-            except Exception:
-                continue
+                    
+            except StopIteration: break
+            except Exception: continue
 
 # ==========================================
 # 4. TRAINING WITH DASHBOARD
@@ -323,11 +349,13 @@ def train():
                 if scaler:
                     with torch.cuda.amp.autocast():
                         logits, _ = model(inputs) # Ignore state during training
-                        loss = F.cross_entropy(logits.reshape(-1, CONFIG['vocab_size']), targets.reshape(-1))
+                        # Mask loss calculation (Ignore padding tokens = 0)
+                        loss = F.cross_entropy(logits.reshape(-1, CONFIG['vocab_size']), targets.reshape(-1), ignore_index=0)
                     scaler.scale(loss).backward()
                 else:
                     logits, _ = model(inputs) # Ignore state during training
-                    loss = F.cross_entropy(logits.reshape(-1, CONFIG['vocab_size']), targets.reshape(-1))
+                    # Mask loss calculation (Ignore padding tokens = 0)
+                    loss = F.cross_entropy(logits.reshape(-1, CONFIG['vocab_size']), targets.reshape(-1), ignore_index=0)
                     loss.backward()
                 
                 running_loss += loss.item()

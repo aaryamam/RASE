@@ -84,9 +84,12 @@ def load_model(path):
         print(f"Error details: {e}")
         sys.exit(1)
 
-def generate_response(model, prompt, max_new_tokens=250, temperature=0.7):
-    # 1. First Pass: Process the whole prompt to build initial state
-    input_ids = list(prompt.encode('utf-8'))
+def generate_response(model, prompt, max_new_tokens=250, temperature=0.3):
+    # --- TEMPLATE FIX: Match the fine-tuning format ---
+    # Model was trained with "Question: ... \nAnswer: ... \nReasoning: ..."
+    full_prompt = f"Question: {prompt.strip()}\nAnswer: "
+    
+    input_ids = list(full_prompt.encode('utf-8'))
     x = torch.tensor([input_ids], dtype=torch.long).to(DEVICE)
     
     print(f"\n{Fore.CYAN}HOPE: {Style.RESET_ALL}", end="")
@@ -95,17 +98,18 @@ def generate_response(model, prompt, max_new_tokens=250, temperature=0.7):
     byte_buffer = bytearray()
     
     with torch.no_grad():
-        # Build initial memory state from the prompt
         logits, state = model(x)
     
-    # Get the last character prediction from prompt
     last_token_logits = logits[:, -1, :] / temperature
     probs = F.softmax(last_token_logits, dim=-1)
     next_token = torch.multinomial(probs, num_samples=1)
     
     for _ in range(max_new_tokens):
         token_int = next_token.item()
-        if token_int == 0: break 
+        
+        # Stop on 0 (This is our padding/stop token from isolated training)
+        if token_int == 0: 
+            break 
         
         generated_bytes.append(token_int)
         
@@ -127,18 +131,13 @@ def generate_response(model, prompt, max_new_tokens=250, temperature=0.7):
         
         sys.stdout.flush()
         
-        # 2. Optimized Loop: Only pass the ONE new token plus the STATE
         with torch.no_grad():
-            # x is now just the single next token
-            x = next_token # (batch=1, seq=1)
-            logits, state = model(x, state=state) # Pass state forward!
+            x = next_token 
+            logits, state = model(x, state=state)
             
         last_token_logits = logits[:, -1, :] / temperature
         probs = F.softmax(last_token_logits, dim=-1)
         next_token = torch.multinomial(probs, num_samples=1)
-
-    print() # Final newline
-    return bytes(generated_bytes).decode('utf-8', errors='ignore')
 
     print() # Final newline
     return bytes(generated_bytes).decode('utf-8', errors='ignore')
