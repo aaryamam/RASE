@@ -1,0 +1,40 @@
+# ── Python ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ─────────────────────────
+.venv/
+venv/
+env/
+.env/
+
+# ── Datasets ─────────────────────────────────────
+# CIFAR-10 and CIFAR-100 are auto-downloaded at runtime.
+# Do NOT commit raw dataset files — they are large and publicly available.
+data/
+
+# ── Model checkpoints ────────────────────────────
+# .pt files can be 40–200 MB each. Use Git LFS or a cloud bucket instead.
+checkpoints/
+
+# ── Jupyter ──────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── OS / editor artifacts ─────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Logs & misc output ───────────────────────────
+*.log
+*.out
+runs/
+wandb/

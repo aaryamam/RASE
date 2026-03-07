@@ -1,182 +1,126 @@
-# HOPE: The Nested Learning Experiment 🧠
+# RASE — Retain-Activation Subspace Erasure
 
-> **"Deep Learning is an illusion. Real learning is a set of nested optimization problems."**
+**RASE** is a machine unlearning method that erases a model's knowledge of a specific class by projecting gradient updates away from the retain-set's activation subspace during gradient ascent. This keeps retained classes intact while efficiently forgetting a target class — without retraining from scratch.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Pytorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
-
-## 📖 What is this?
-This is a clean, from-scratch PyTorch implementation of the **HOPE architecture**, based on the groundbreaking paper *"Nested Learning: The Illusion of Deep Learning"* (Behrouz et al., 2024).
-
-Standard Large Language Models (LLMs) suffer from **"Anterograde Amnesia"**—once trained, they are frozen. They can't learn from new conversations without a full re-training. 
-
-**HOPE changes the paradigm.** Instead of just stacking static layers, it models intelligence as a **Continuum Memory System**:
-* **Fast Weights (Self-Modifying Layer):** A layer that *updates its own parameters* in real-time as it reads text. It learns your specific context instantly.
-* **Slow Weights (Continuum Memory):** Deep layers that update rarely, storing long-term knowledge (grammar, facts) without catastrophic forgetting.
-
-## 🚀 Key Features
-* **🧠 Self-Modifying Architecture:** Uses a "Fast Weight" mechanism (Linear Attention dual form) to adapt to the immediate prompt dynamically.
-* **⚡ Fast State-Passing Inference:** Optimized $O(N)$ generation algorithm that carries model memory forward, enabling lightning-fast responses even for long sequences.
-* **🕰️ Continuum Memory System (CMS):** A hierarchy of layers that update at different frequencies (Fast, Medium, Slow), mimicking the human brain's memory consolidation.
-* **⚡ Ultra-Lightweight:** Designed to run on **Consumer Hardware** (Mac M1/M2/M3, NVIDIA RTX 3060+, or even CPU).
-* **🔄 Continual Learning:** Capable of training on Dataset A, then Dataset B, without instantly forgetting Dataset A.
-* **📱 Consumer Device Ready:** Optimized <1GB RAM footprint for inference on everyday hardware.
-* **�️ Padding Masking & Memory Integrity:** Binary masking in the self-modifying layers prevents "Padding Leakage," ensuring the model's memory stays pure during fine-tuning on isolated datasets.
-* **📝 Automatic Instruction Tuning:** Built-in formatting that turns raw multi-column datasets into structured assistant prompts (Question/Answer/Reasoning).
+This repository compares RASE against two baselines on CIFAR-10 and CIFAR-100:
+- **GA** — plain Gradient Ascent on forget-class data
+- **GPM-W** — Weight-space projected gradient ascent (ResNet-18 only)
 
 ---
 
-## 🛠️ Requirements
+## Method Overview
 
-You don't need a massive server. This implementation is optimized for **Laptops** and **Home PCs**.
+Standard gradient ascent on forget-class data degrades retain-class accuracy quickly. RASE fixes this by:
 
-* **Python:** 3.9 or newer
-* **Memory:** 8GB RAM minimum (16GB recommended)
-* **GPU:** Optional but recommended (NVIDIA CUDA or Mac MPS supported)
+1. **Building a retain subspace** — Forward-pass retain-set samples through the model and collect layer activations. Run SVD to find the principal directions that span the retain-set's activation space.
+2. **Projecting gradients at each step** — During gradient ascent on forget-class batches, backward hooks project each layer's gradient *away* from the retain subspace before the weight update. This confines forgetting to directions irrelevant to the retained classes.
 
-### Python Libraries
-The core dependencies are lightweight:
-* `torch` (The engine)
-* `datasets` (For streaming Hugging Face data)
-* `colorama` (For the fancy dashboard)
-* `psutil` (For memory tracking)
-* `gradio` (For the web interface)
+RASE works on both **ResNet-18** (hooks on `layer1`–`layer4`) and **ViT-Small** (hooks on transformer blocks).
 
 ---
 
-## 📦 Installation
+## Repository Structure
 
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/HOPE-nested-learning.git
-   cd HOPE-nested-learning
-   ```
-
-2. **Setup Virtual Environment**
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
-   ```
-
-3. **Install Dependencies**
-   ```bash
-   pip install torch datasets colorama psutil gradio
-   ```
-
----
-
-## 🚦 Usage
-
-### 1. Train the Brain 🏋️
-
-Start training a model from scratch. The script auto-detects your hardware (CUDA/MPS/CPU) and streams data so you don't need to download massive files.
-```bash
-python train_hope.py
 ```
-*   **Default Dataset:** English Wikipedia (`20231101.en`).
-*   **Output:** Saves a "brain" file to `hope_en_deep.pth`.
-*   **Dashboard:** Shows real-time Loss, Speed (tok/s), and a Live Data Preview.
-
-### 2. Chat in the Console 💬
-
-Test your model immediately with a lightweight interactive chat optimized for speed.
-```bash
-python chat.py
+RASE/
+├── scripts/
+│   ├── train_resnet.py    # Train ResNet-18 on CIFAR-10 (200 epochs, SGD + cosine LR)
+│   ├── train_vit.py       # Train ViT-Small on CIFAR-10
+│   ├── unlearn.py         # Run GA / GPM-W / RASE unlearning (switch arch at top)
+│   └── evaluate.py        # Evaluate unlearned checkpoints with MIA metrics
+├── checkpoints/           # Saved model weights (not tracked by git — see .gitignore)
+├── data/                  # CIFAR datasets (auto-downloaded, not tracked by git)
+├── REPO_EXPLAINED.md      # In-depth explanation of all scripts and concepts
+└── README.md
 ```
-*   Uses **Fast State-Passing** for $O(N)$ inference.
-*   Shows real-time memory usage and parameter count.
-*   Type `quit` to exit.
-
-### 3. Run the Web Interface 🔌
-
-Launch a beautiful Gradio-based web UI to chat with your model. It includes real-time sliders for **Temperature** (Creativity) and **Max Tokens**.
-```bash
-python app.py
-```
-*   **Inference Algorithm:** Optimized State-Passing ($O(N)$).
-*   **Features:** Character-level streaming and interactive randomness control sliders.
 
 ---
 
-## 🧪 Advanced Strategies
+## Setup
 
-### 📈 Fine-Tuning
-HOPE is natively designed for high-performance instruction tuning and domain adaptation.
-1. **Prepare Data:** Use a Hugging Face dataset with columns like `question` and `answer`.
-2. **Isolate Samples:** Set `"isolate_samples": True` in `CONFIG`. This ensures the model treats each row as a distinct fact, using **Loss Masking** to ignore padding.
-3. **Auto-Formatting:** The trainer automatically detects multiple columns and formats them with headers (e.g., `Question: ... \nAnswer: ...`), teaching the model assistant behaviors.
-4. **Gentle Learning:** Use a lower `learning_rate` (e.g., `5e-5`) to refine the existing "Slow Weights" without losing the foundation knowledge.
+**Requirements:** Python 3.9+, PyTorch ≥ 2.0, torchvision, numpy
 
-### 🌡️ Inference Parameters
-*   **Temperature:** Controls how "random" the model is. 
-    *   *Lower (0.1 - 0.5):* High confidence, strict logic.
-    *   *Higher (0.8 - 1.2):* Creative, varied language.
-*   **Max Tokens:** Safety limit for generation. Since the model uses State-Passing, it can generate long text without the massive slowdown of standard transformers.
+```bash
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install torch torchvision numpy
+```
+
+> Datasets (CIFAR-10 / CIFAR-100) are downloaded automatically to `./data/` on first run.
 
 ---
 
-## 🧪 Configuration
+## Quick Start
 
-The project is currently tuned for a **~154M Parameter "Ultra Brain"** optimized for 32GB RAM. You can tweak the model size in `train_hope.py` by modifying the `CONFIG` dictionary:
+### 1. Train a model
+
+```bash
+# Train ResNet-18 on CIFAR-10
+python scripts/train_resnet.py
+
+# Train ViT-Small on CIFAR-10
+python scripts/train_vit.py
+```
+
+Checkpoints are saved to `checkpoints/`.
+
+### 2. Run unlearning
+
+Open `scripts/unlearn.py` and set the configuration at the top:
 
 ```python
-CONFIG = {
-    "d_model": 768,           # Width (Reasoning capability)
-    "n_layers": 32,           # Depth
-    "seq_len": 512,           # Training window
-    "vocab_size": 256,        # Byte-Level
-    "max_steps": 40000,       # Total steps
-    "learning_rate": 2e-4,    # Large-scale stability
-    "isolate_samples": False, # True for Q&A datasets, False for Wikipedia
-}
+MODEL_ARCH   = "resnet18"   # or "vit_small"
+FORGET_CLASS = 0            # class index to forget (0–9)
+UNLEARN_STEPS = 800
+UNLEARN_LR    = 1e-3
+SVD_THRESHOLD = 0.95        # fraction of activation variance to retain
 ```
 
-### 🧠 Performance & RAM Specs
-One of the key strengths of this architecture is its efficiency during use:
+Then run:
 
-*   **Training (`train_hope.py`):** Uses ~16GB - 22GB RAM. It requires high memory because it must store a "history" of the model's memory state for every character in the sequence to calculate gradients.
-*   **Inference (`chat.py` / `app.py`):** Uses < 1GB RAM. Because of our **Fast State-Passing** optimization, the model only needs to remember its current state, making it incredibly lightweight for daily use.
+```bash
+python scripts/unlearn.py
+```
 
-### Preset Configurations:
-- **Nano**: `d_model=256, n_layers=4` (Fastest, ~10M params)
-- **Balanced**: `d_model=384, n_layers=12` (~50M params)
-- **Deep**: `d_model=384, n_layers=32` (~100M params)
-- **Ultra (Default)**: `d_model=768, n_layers=32` (~154M params, high-end Mac/PC)
+Unlearned checkpoints are saved to `checkpoints/unlearned/<arch>_forget<class>/`.
 
-## 🧪 Training Laboratory & Experiments
+### 3. Evaluate
 
-The **"Ultra Brain"** configuration (154M Parameters) was developed through a structured multi-phase experimental roadmap:
+```bash
+python scripts/evaluate.py
+```
 
-### Phase 1: General Foundation (Grammar & Facts)
-*   **Dataset:** `wikimedia/wikipedia` (English)
-*   **Method:** **Packed Training** (Stitching articles together to maximize density).
-*   **Goal:** Building a deep semantic understanding of English and general knowledge.
-*   **Outcome:** Loss stabilized at **~1.32**. The model became a proficient "Document Completer," writing perfect Wikipedia-style entries.
-
-### Phase 2: Structural Optimization (Performance)
-*   **Inference:** Switched from $O(N^2)$ to **$O(N)$ State-Passing**. This enabled instant responses by carrying the memory matrix forward rather than re-calculating the entire sequence.
-*   **Dataset Loader:** Upgraded to a **Token Buffer** system, ensuring 100% data utilization by eliminating stub-article discarding.
-
-### Phase 3: Instruction Fine-Tuning (Critical Discovery)
-*   **Dataset:** `obekt/obekt-question-answer-reasoning-nano-v0.1`
-*   **Method:** **Sample-Isolated Mode** with **Padding Masking**.
-*   **The "Padding Leakage" Discovery:** We found that without masking, the model's self-modifying memory would update during padding zeros, causing factual blending.
-*   **The Fix:** Implemented a binary mask in the architecture. The memory now stays perfectly locked during padding, enabling pure, focused learning.
-*   **Optimal Training Window:** We discovered that for 3,000 rows, **5-10 epochs** (roughly 300-600 steps) is the sweet spot. Over-training (50+ epochs) leads to "thematic blending" and hallucinations.
-*   **Outcome:** Loss sat at **0.60** with perfect instruction following and zero context bleeding.
-
-### 💡 High-Quality Best Practices
-1.  **Always Mask:** Ensure `isolate_samples` is True when using Q&A data to trigger the binary padding mask.
-2.  **Watch the Epochs:** Do not let the model see the same small dataset more than 15 times unless knowledge acquisition is still actively improving.
-3.  **Instruction Template:** Always use the `Question: / Answer:` template in inference to match the model's fine-tuned state.
+Reports Forget accuracy, Retain accuracy, Test accuracy, and **MIA balanced accuracy** (ideally ≈ 50% after unlearning, indicating random-guess level membership inference).
 
 ---
 
-## 📜 Credits & Citation
+## Key Results
 
-This code is an unofficial implementation and experimental exploration of the concepts introduced in:
+| Method  | Forget Acc ↓ | Retain Acc ↑ | Test Acc ↑ | MIA Acc → 50% |
+|---------|:------------:|:------------:|:----------:|:-------------:|
+| Original | high        | high         | high       | high          |
+| GA      | low          | degrades     | degrades   | ~50%          |
+| GPM-W   | low          | moderate     | moderate   | ~50%          |
+| **RASE**| **low**      | **preserved**| **preserved** | **~50%**   |
 
-> **Nested Learning: The Illusion of Deep Learning**  
-> Ali Behrouz, Meisam Razaviyayn, Peilin Zhong, Vahab Mirrokni (Google Research)  
-> [Paper Link](https://abehrouz.github.io/files/NL.pdf)
+---
+
+## Configuration Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MODEL_ARCH` | `"resnet18"` | Architecture: `"resnet18"` or `"vit_small"` |
+| `FORGET_CLASS` | `0` | Class index to unlearn |
+| `UNLEARN_STEPS` | `800` | Number of gradient ascent steps |
+| `UNLEARN_LR` | `1e-3` | Learning rate for unlearning |
+| `SVD_THRESHOLD` | `0.95` | Fraction of activation variance to span with basis |
+| `SAMPLES_PER_CLASS` | `500` | Retain samples per class used to build SVD basis |
+
+---
+
+## Citation / Acknowledgements
+
+This project is a research implementation. If you build on this work, please cite appropriately.
