@@ -97,16 +97,6 @@ Reports Forget accuracy, Retain accuracy, Test accuracy, and **MIA balanced accu
 
 ---
 
-## Key Results
-
-| Method  | Forget Acc ↓ | Retain Acc ↑ | Test Acc ↑ | MIA Acc → 50% |
-|---------|:------------:|:------------:|:----------:|:-------------:|
-| Original | high        | high         | high       | high          |
-| GA      | low          | degrades     | degrades   | ~50%          |
-| GPM-W   | low          | moderate     | moderate   | ~50%          |
-| **RASE**| **low**      | **preserved**| **preserved** | **~50%**   |
-
----
 
 ## Configuration Reference
 
