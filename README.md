@@ -124,6 +124,12 @@ Key variables to tune in `scripts/unlearn.py`:
 
 ---
 
+## Acknowledgements
+This repository includes an implementation of the SCRUB baseline for comparison purposes. We thank the authors for making their code publicly available. 
+
+* **SCRUB:** Meghdad Kurmanji, Peter Triantafillou, Jamie Hayes, and Eleni Triantafillou. "Towards Unbounded Machine Unlearning." *NeurIPS*, 2024. 
+  * Original implementation: [https://github.com/meghdadk/SCRUB.git](https://github.com/meghdadk/SCRUB.git)
+
 ## Citation / Acknowledgements
 
 This project is a research implementation. If you build on this work, please cite appropriately.
