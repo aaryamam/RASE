@@ -30,7 +30,6 @@ RASE/
 │   ├── train_resnet50_tinyimagenet.py # Train ResNet-50 on Tiny-ImageNet
 │   ├── unlearn.py                     # Run GA / GPM-W / RASE / SCRUB
 │   └── evaluate.py                    # Evaluate unlearned checkpoints with MIA metrics
-├── old_scripts/                   # Various prior experimentation scripts
 ├── checkpoints/                   # Saved model weights (not tracked by git)
 ├── data/                          # CIFAR/Tiny-ImageNet datasets (auto-downloaded)
 ├── REPO_EXPLAINED.md              # In-depth explanation of all scripts and concepts
