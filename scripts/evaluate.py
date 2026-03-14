@@ -1,4 +1,6 @@
-"""
+git remote add origin https://github.com/aaryamam/RASE.git
+git branch -M main
+git push -u origin main"""
 evaluate.py — Run MIA and linear probing on unlearned model checkpoints.
 
 Loads checkpoints produced by unlearn.py.
