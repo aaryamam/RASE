@@ -2,9 +2,10 @@
 
 **RASE** is a machine unlearning method that erases a model's knowledge of a specific class by projecting gradient updates away from the retain-set's activation subspace during gradient ascent. This keeps retained classes intact while efficiently forgetting a target class — without retraining from scratch.
 
-This repository compares RASE against two baselines on CIFAR-10 and CIFAR-100:
+This repository compares RASE against three baselines on CIFAR-10 and Tiny-ImageNet:
 - **GA** — plain Gradient Ascent on forget-class data
-- **GPM-W** — Weight-space projected gradient ascent (ResNet-18 only)
+- **GPM-W** — Weight-space projected gradient ascent (ResNet only)
+- **SCRUB** — Teacher-Student KL unlearning
 
 ---
 
@@ -15,7 +16,7 @@ Standard gradient ascent on forget-class data degrades retain-class accuracy qui
 1. **Building a retain subspace** — Forward-pass retain-set samples through the model and collect layer activations. Run SVD to find the principal directions that span the retain-set's activation space.
 2. **Projecting gradients at each step** — During gradient ascent on forget-class batches, backward hooks project each layer's gradient *away* from the retain subspace before the weight update. This confines forgetting to directions irrelevant to the retained classes.
 
-RASE works on both **ResNet-18** (hooks on `layer1`–`layer4`) and **ViT-Small** (hooks on transformer blocks).
+RASE works on **ResNet-18**, **ResNet-50**, and **ViT-Small** models. ViT unlearning uses Adam optimizer with selective block hooking for stable gradient projection.
 
 ---
 
@@ -24,13 +25,15 @@ RASE works on both **ResNet-18** (hooks on `layer1`–`layer4`) and **ViT-Small*
 ```
 RASE/
 ├── scripts/
-│   ├── train_resnet.py    # Train ResNet-18 on CIFAR-10 (200 epochs, SGD + cosine LR)
-│   ├── train_vit.py       # Train ViT-Small on CIFAR-10
-│   ├── unlearn.py         # Run GA / GPM-W / RASE unlearning (switch arch at top)
-│   └── evaluate.py        # Evaluate unlearned checkpoints with MIA metrics
-├── checkpoints/           # Saved model weights (not tracked by git — see .gitignore)
-├── data/                  # CIFAR datasets (auto-downloaded, not tracked by git)
-├── REPO_EXPLAINED.md      # In-depth explanation of all scripts and concepts
+│   ├── train_resnet.py                # Train ResNet-18 on CIFAR-10
+│   ├── train_vit.py                   # Train ViT-Small on CIFAR-10
+│   ├── train_resnet50_tinyimagenet.py # Train ResNet-50 on Tiny-ImageNet
+│   ├── unlearn.py                     # Run GA / GPM-W / RASE / SCRUB
+│   └── evaluate.py                    # Evaluate unlearned checkpoints with MIA metrics
+├── old_scripts/                   # Various prior experimentation scripts
+├── checkpoints/                   # Saved model weights (not tracked by git)
+├── data/                          # CIFAR/Tiny-ImageNet datasets (auto-downloaded)
+├── REPO_EXPLAINED.md              # In-depth explanation of all scripts and concepts
 └── README.md
 ```
 
@@ -49,7 +52,7 @@ source .venv/bin/activate
 pip install torch torchvision numpy
 ```
 
-> Datasets (CIFAR-10 / CIFAR-100) are downloaded automatically to `./data/` on first run.
+> Datasets (CIFAR-10 / Tiny-ImageNet) are downloaded automatically to `./data/` on first run.
 
 ---
 
@@ -63,31 +66,40 @@ python scripts/train_resnet.py
 
 # Train ViT-Small on CIFAR-10
 python scripts/train_vit.py
+
+# Train ResNet-50 on Tiny-ImageNet
+python scripts/train_resnet50_tinyimagenet.py
 ```
 
 Checkpoints are saved to `checkpoints/`.
 
 ### 2. Run unlearning
 
-Open `scripts/unlearn.py` and set the configuration at the top:
+Open `scripts/unlearn.py` and set the overarching configuration at the top:
 
 ```python
-MODEL_ARCH   = "resnet18"   # or "vit_small"
-FORGET_CLASS = 0            # class index to forget (0–9)
-UNLEARN_STEPS = 800
-UNLEARN_LR    = 1e-3
-SVD_THRESHOLD = 0.95        # fraction of activation variance to retain
+MODEL_ARCH      = "resnet50_tinyimagenet"          # "resnet18", "vit_small", or "resnet50_tinyimagenet"
+FORGET_CLASSES  = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # class index to forget (0-9 for CIFAR, 0-199 for TinyImageNet)
+UNLEARN_STEPS   = 200                 # gradient ascent steps
+UNLEARN_LR      = 1e-3                # learning rate for all methods
+SVD_THRESHOLD   = 0.95                # variance threshold for subspace construction
 ```
 
-Then run:
+Then run unlearning via CLI by passing the desired methods:
 
 ```bash
+# Run all methods
 python scripts/unlearn.py
+
+# Run specific methods
+python scripts/unlearn.py --methods ga gpm_w rase scrub
 ```
 
 Unlearned checkpoints are saved to `checkpoints/unlearned/<arch>_forget<class>/`.
 
 ### 3. Evaluate
+
+Open `scripts/evaluate.py` to ensure it is targeting the correct unlearning checkpoints, then run:
 
 ```bash
 python scripts/evaluate.py
@@ -97,17 +109,18 @@ Reports Forget accuracy, Retain accuracy, Test accuracy, and **MIA balanced accu
 
 ---
 
-
 ## Configuration Reference
+
+Key variables to tune in `scripts/unlearn.py`:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `MODEL_ARCH` | `"resnet18"` | Architecture: `"resnet18"` or `"vit_small"` |
-| `FORGET_CLASS` | `0` | Class index to unlearn |
-| `UNLEARN_STEPS` | `800` | Number of gradient ascent steps |
+| `MODEL_ARCH` | `"resnet50_tinyimagenet"` | Architecture: `"resnet18"`, `"vit_small"`, `"resnet50_tinyimagenet"` |
+| `FORGET_CLASSES`| `[0, ...]` | Class indices to unlearn |
+| `UNLEARN_STEPS` | `200` | Number of gradient ascent steps |
 | `UNLEARN_LR` | `1e-3` | Learning rate for unlearning |
 | `SVD_THRESHOLD` | `0.95` | Fraction of activation variance to span with basis |
-| `SAMPLES_PER_CLASS` | `500` | Retain samples per class used to build SVD basis |
+| `SAMPLES_PER_CLASS` | `20` | Retain samples per class used to build SVD basis |
 
 ---
 
